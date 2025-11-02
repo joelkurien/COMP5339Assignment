@@ -89,7 +89,7 @@ def get_market_data(facility_codes):
     pass
 
 def mqtt_publisher():
-    MQTT_BROKER = "mqtt.eclipse.org"  
+    MQTT_BROKER = "localhost"  
     MQTT_PORT = 1883
     MQTT_TOPIC = "facitilies/metrics"
     
