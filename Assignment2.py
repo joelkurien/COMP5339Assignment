@@ -32,6 +32,7 @@ def get_facility_codes():
         print("Facility Codes Cached")
     return facility_codes
 
+#extract per-facility power and emissions information
 def extract_power_and_emissions_data(facilities, f_codes, n, slice, obs_date):
     date_start = obs_date['start']
     date_end = obs_date['end']
@@ -70,7 +71,8 @@ def extract_power_and_emissions_data(facilities, f_codes, n, slice, obs_date):
                                 'Measure Unit': series.unit  
                             })
     return data
-    
+
+#extract per-facility market info
 def extract_market_data(obs_date):
     nemClient = OEClient()
     
@@ -104,33 +106,28 @@ def extract_market_data(obs_date):
 
     df = pd.DataFrame(data)
     return df
-   
+
+#general functions to call the extraction methods safely
 def get_facility_metrics(obs_date):
-    if not os.path.exists("power_df.csv") or os.path.getsize("power_df.csv") == 0:
-        facility_codes = get_facility_codes()
-        f_codes = [facility_codes[name] for name in facility_codes]
-        facilities = nemClient.get_facilities(network_id=["NEM"])
-        data = []
-        
-        n = len(facilities.data)
-        
-        slice = n//20
-        
-        data = extract_power_and_emissions_data(facilities, f_codes, n, slice, obs_date)
-        
-        df = pd.DataFrame(data)
-        df.to_csv("power_df.csv", index=False)
-    else:
-        print("Power and Emission information is alread loaded in a CSV")
+    facility_codes = get_facility_codes()
+    f_codes = [facility_codes[name] for name in facility_codes]
+    facilities = nemClient.get_facilities(network_id=["NEM"])
+    data = []
+    
+    n = len(facilities.data)
+    
+    slice = n//20
+    
+    data = extract_power_and_emissions_data(facilities, f_codes, n, slice, obs_date)
+    
+    df = pd.DataFrame(data)
+    df.to_csv("power_df.csv", index=False)
 
 def get_market_data(obs_date):
-    if not os.path.exists("market_data.csv") or os.path.getsize("market_data.csv") == 0:
-        data = extract_market_data(obs_date)
-        
-        data.to_csv("market_data.csv")
-    else:
-        print("Market Information for each region has been already loaded")
-        
+    data = extract_market_data(obs_date)
+    data.to_csv("market_data.csv")
+
+#control function for task 1       
 def get_metric_main():
     obs_date = {
         'start': datetime(2025, 10, 1),
@@ -139,30 +136,57 @@ def get_metric_main():
     
     get_facility_metrics(obs_date)
     get_market_data(obs_date)
-    
 
+#csv cleaning function for task 2
+def csv_cleaning():
+    power_df = pd.read_csv("power_df.csv")
+    market_df = pd.read_csv("market_data.csv")
+
+    power_temp = power_df[power_df['Metric'] == 'power']
+    market_temp = market_df[market_df['metric'] == 'price'] 
+
+    power_temp = power_temp.copy()  
+    power_temp.loc[:, 'Power(MW)'] = power_df.query("Metric == 'power'")['Value'].values
+    power_temp.loc[:, 'Emissions(t)'] = power_df.query("Metric == 'emissions'")['Value'].values
+
+    market_temp = market_temp.copy()
+    market_temp.loc[:, 'Price($/MWh)'] = market_df.query("metric == 'price'")['value'].values
+    market_temp.loc[:, 'Demand(MW)'] = market_df.query("metric == 'demand'")['value'].values
+    market_temp = market_temp.drop(columns=['Unnamed: 0'])
+    market_temp['timestamp'] = market_temp['timestamp'].str.replace(r'\+10:00$', '', regex=True)
+
+    power_temp.to_csv('power_df.csv', index=False)
+    market_temp.to_csv('market_data.csv', index=False)
+    print("CSV's have been cleaned and updated")
+
+#mqtt publisher on localhost for the two topics of facility metrics and region markets
 def mqtt_publisher():
     MQTT_BROKER = "localhost"  
     MQTT_PORT = 1883
     MQTT_TOPIC = "facitilies/metrics"
     
-    df = pd.read_csv("power_df.csv")
-    json_payload = df.to_json(orient="records") 
-    payload = json.loads(json_payload)  
+    topics = {
+        "power_df.csv": "facilities/metrics_info",
+        "market_data.csv": "market/price_demand"
+    }
     
     
-    for index, row in df.iterrows():
-        record = row.to_dict()
-        
-        json_payload = json.dumps(record)
-        publish.single(MQTT_TOPIC, json_payload, hostname=MQTT_BROKER, port=MQTT_PORT)
-        
-        print(f"Published record {index+1}: {json_payload}")
-        time.sleep(0.1)
+    while True:
+        for file, topic in topics.items():
+            df = pd.read_csv(file)
 
-    print("All records published.")
+            for index, row in df.iterrows():
+                record = row.to_dict()
+                json_payload = json.dumps(record)
+
+                publish.single(topic, json_payload, hostname=MQTT_BROKER, port=MQTT_PORT)
+
+                print(f"✅ Published record {index + 1}/{len(df)} to topic {topic}")
+                time.sleep(0.1)
+        time.sleep(60)
     
 
 get_metric_main()
+csv_cleaning()
 mqtt_publisher()
 
