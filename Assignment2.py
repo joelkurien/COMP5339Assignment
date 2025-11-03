@@ -57,12 +57,14 @@ def extract_power_and_emissions_data(facilities, f_codes, n, slice, obs_date):
                     if result.columns.unit_code in [unit.code for unit in facility.units]:
                         for data_pt in result.data:
                             facility_name = facility.name
+                            facility_code = facility.code
                             unit = next(u for u in facility.units if u.code == result.columns.unit_code)
                             unit_code = unit.code
                             fueltype = unit.fueltech_id.value.replace("_", " ").title()
                             timestamp = data_pt.timestamp.strftime("%Y-%m-%d %H:%M")
                             data.append({
                                 'Facility Name': facility_name,
+                                'Facility Code': facility_code,
                                 'Unit Code': unit_code,
                                 'Fuel Type': fueltype,
                                 'Timestamp': timestamp,
@@ -148,7 +150,10 @@ def csv_cleaning():
     power_temp = power_temp.copy()  
     power_temp.loc[:, 'Power(MW)'] = power_df.query("Metric == 'power'")['Value'].values
     power_temp.loc[:, 'Emissions(t)'] = power_df.query("Metric == 'emissions'")['Value'].values
-
+    power_temp = power_temp[~((power_temp['Power(MW)'] == 0) & (power_temp['Emissions(t)'] == 0))]
+    power_temp = power_temp.drop(columns=['Value', 'Metric', 'Measure Unit'])
+    
+    
     market_temp = market_temp.copy()
     market_temp.loc[:, 'Price($/MWh)'] = market_df.query("metric == 'price'")['value'].values
     market_temp.loc[:, 'Demand(MW)'] = market_df.query("metric == 'demand'")['value'].values
@@ -159,34 +164,34 @@ def csv_cleaning():
     market_temp.to_csv('market_data.csv', index=False)
     print("CSV's have been cleaned and updated")
 
-#mqtt publisher on localhost for the two topics of facility metrics and region markets
+#mqtt publisher on localhost for the per-facility metrics
 def mqtt_publisher():
-    MQTT_BROKER = "localhost"  
+    MQTT_BROKER = "test.mosquitto.org"  
     MQTT_PORT = 1883
-    MQTT_TOPIC = "facitilies/metrics"
+    MQTT_TOPIC = "facilities/metrics_info"
     
-    topics = {
-        "power_df.csv": "facilities/metrics_info",
-        "market_data.csv": "market/price_demand"
-    }
+    df = pd.read_csv("power_df.csv")
     
+    timestamp_grouped = df.groupby('Timestamp')    
     
     while True:
-        for file, topic in topics.items():
-            df = pd.read_csv(file)
-
-            for index, row in df.iterrows():
-                record = row.to_dict()
-                json_payload = json.dumps(record)
-
-                publish.single(topic, json_payload, hostname=MQTT_BROKER, port=MQTT_PORT)
-
-                print(f"✅ Published record {index + 1}/{len(df)} to topic {topic}")
-                time.sleep(0.1)
+        for timestamp, group in timestamp_grouped:
+            data = group.to_dict(orient='records')
+            
+            payload = {
+                "timestamp": str(timestamp),
+                "data": data
+            }
+            
+            json_payload = json.dumps(payload)
+            publish.single(MQTT_TOPIC, json_payload, hostname=MQTT_BROKER, port=MQTT_PORT)
+            print(json_payload)
+            
+            time.sleep(0.1)
         time.sleep(60)
     
 
-get_metric_main()
-csv_cleaning()
+# get_metric_main()
+# csv_cleaning()
 mqtt_publisher()
 
