@@ -77,7 +77,7 @@ def on_message(client, userdata, msg):
         payload = json.loads(msg.payload.decode())
         records = payload.get("data", [])
         if records:
-            print(f"📩 Received MQTT message with {len(records)} records.")
+            print(f"Received MQTT message with {len(records)} records.")
         for rec in records:
             name = rec.get("Facility Name")
             if not name:
