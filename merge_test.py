@@ -274,7 +274,7 @@ class DatabaseGeneration():
 # Usage example
 # Initialize the class
 db_gen = DatabaseGeneration(
-    #google_api_key="AIzaSyCXe4WX_VTezOiWHQYSxqXxp3tphr1nqpQ",
+    google_api_key="AIzaSyCXe4WX_VTezOiWHQYSxqXxp3tphr1nqpQ",
     db_path="assignment1.duckdb"
 )
 #endregion Database creation
@@ -487,40 +487,6 @@ def merge_with_duckdb_location_fuzzy(
     df_power.to_csv(output_path, index=False)
     print(f"Saved merged dataset: {output_path}")
     return df_power
-    # for name in df_power["clean_name"]:
-    #     if not name:
-    #         latitudes.append(None)
-    #         longitudes.append(None)
-    #         scores.append(None)
-    #         continue
-
-    #     match = process.extractOne(name, names_db, scorer=fuzz.partial_ratio)
-    #     if match and match[1] >= min_score_primary:
-    #         matched_row = df_db[df_db["clean_name"] == match[0]].iloc[0]
-    #     else:
-    #         match = process.extractOne(name, names_db, scorer=fuzz.token_sort_ratio)
-    #         if match and match[1] >= min_score_secondary:
-    #             matched_row = df_db[df_db["clean_name"] == match[0]].iloc[0]
-    #         else:
-    #             matched_row = None
-
-    #     if matched_row is not None:
-    #         latitudes.append(matched_row["latitude"])
-    #         longitudes.append(matched_row["longitude"])
-    #         scores.append(match[1])
-    #     else:
-    #         latitudes.append(None)
-    #         longitudes.append(None)
-    #         scores.append(None)
-
-    # df_power["latitude"], df_power["longitude"], df_power["match_score"] = latitudes, longitudes, scores
-    # matched = df_power["latitude"].notna().sum()
-    # print(f"Fuzzy matched facilities: {matched}/{len(df_power)} ({matched/len(df_power)*100:.2f}%)")
-
-    # df_power.to_csv(output_path, index=False)
-    # print(f"Saved merged dataset: {output_path}")
-    # print(df_power.head(5)[["Facility Name", "latitude", "longitude", "match_score"]])
-    # return df_power
 
 # MQTT Publisher
 #mqtt publisher on localhost for the per-facility metrics
@@ -596,8 +562,8 @@ def mqtt_publisher():
 
 #publisher workflow
 obs_date = {"start": datetime(2025, 10, 1), "end": datetime(2025, 10, 8)}
-#get_facility_metrics(obs_date)
-#get_market_data(obs_date)
-#csv_cleaning()
-#merge_with_duckdb_location_fuzzy()
+# get_facility_metrics(obs_date)
+# get_market_data(obs_date)
+# csv_cleaning()
+# merge_with_duckdb_location_fuzzy()
 mqtt_publisher()
