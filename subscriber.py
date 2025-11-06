@@ -32,6 +32,14 @@ def load_facilities(path="power_with_geo.csv"):
     df["Fuel Type"] = df.get("Fuel Type", "Unknown")
     return df
 
+# @st.cache_data
+# def load_market(path="market_data.csv"):
+#     df = pd.read_csv(path)
+#     df.columns = [c.strip() for c in df.columns]
+#     if "timestamp" in df.columns:
+#         df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+#     return df
+
 FACILITIES = load_facilities("power_with_geo.csv")
 
 # Sidebar: MQTT Settings
@@ -56,10 +64,10 @@ FUEL_COLOR = {
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        #print(f"✅ Connected to MQTT broker {broker_host}:{broker_port}")
+        #print(f"Connected to MQTT broker {broker_host}:{broker_port}")
         client.subscribe(topic_facility)
     else:
-        print(f"❌ Connection failed with code {rc}")
+        print(f" Connection failed with code {rc}")
 
 def on_message(client, userdata, msg):
     """Receive and push messages into queue"""
@@ -93,15 +101,13 @@ if "mqtt_started" not in st.session_state:
 msg_queue = st.session_state["msg_queue"]
 fac_buffer = st.session_state["fac_buffer"]
 
-# Streamlit UI
-st.set_page_config(page_title="MQTT Facility Dashboard", layout="wide")
-st.title("⚡ Real-Time Facility Map (Live MQTT Data)")
-st.caption(f"Broker: `{broker_host}` | Port: `{broker_port}` | Topic: `{topic_facility}`")
+# Streamlit Layout (Left: Map + Facility metrics, Right: Market)
+st.set_page_config(page_title="NEM Real-Time Dashboard", layout="wide")
+st.title("⚡ NEM Real-Time Dashboard (Live MQTT Data)")
 
 st_autorefresh(interval=3000, key="refresh_counter")
 
-# Update buffer from Queue
-#print(f"🧮 Queue size: {msg_queue.qsize()}")
+# MQTT data
 while not msg_queue.empty():
     payload = msg_queue.get()
     records = payload.get("data", [])
@@ -122,66 +128,66 @@ while not msg_queue.empty():
 
 fac_buffer = st.session_state["fac_buffer"]
 
-# Build map once
-if "map_obj" not in st.session_state:
-    fmap = folium.Map(location=[-25, 134], zoom_start=4, tiles="CartoDB positron")
+left_col, right_col = st.columns([1, 1])
 
-    for _, row in FACILITIES.iterrows():
-        lat, lon = row["latitude"], row["longitude"]
-        if np.isnan(lat) or np.isnan(lon):
-            continue
-        name = row["Facility Name"]
-        fuel = row.get("Fuel Type", "Unknown")
-        color = FUEL_COLOR.get(fuel, "gray")
+# map
+with left_col:
+    st.markdown("### Facility Map")
 
-        popup_html = f"""
-            <b>{name}</b><br>
-            Fuel: {fuel}<br>
-            Timestamp: -<br>
-            Power: N/A MW<br>
-            Emissions: N/A tCO₂
-        """
+    if "map_obj" not in st.session_state:
+        fmap = folium.Map(location=[-25, 134], zoom_start=4, tiles="CartoDB positron")
+        for _, row in FACILITIES.iterrows():
+            lat, lon = row["latitude"], row["longitude"]
+            if np.isnan(lat) or np.isnan(lon):
+                continue
+            name = row["Facility Name"]
+            fuel = row.get("Fuel Type", "Unknown")
+            color = FUEL_COLOR.get(fuel, "gray")
+            popup_html = f"""
+                <div style="width:180px; font-size:13px; line-height:1.4;">
+                    <b>{name}</b><br>
+                    <b>Fuel Type:</b> {fuel}<br>
+                    <b>Timestamp:</b> -<br>
+                    <b>Power:</b> N/A MW<br>
+                    <b>Emissions:</b> N/A tCO₂
+                </div>
+            """
 
-        folium.CircleMarker(
-            location=[lat, lon],
-            radius=6,
-            color=color,
-            fill=True,
-            fill_color=color,
-            fill_opacity=0.9,
-            popup=popup_html,
-            tooltip=f"{name}"
-        ).add_to(fmap)
+            folium.CircleMarker(
+                location=[lat, lon],
+                radius=6,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.9,
+                popup=popup_html,
+                tooltip=f"{name}"
+            ).add_to(fmap)
+        st.session_state["map_obj"] = fmap
 
-    st.session_state["map_obj"] = fmap
+    fmap = st.session_state["map_obj"]
+    map_display = st_folium(fmap, width=700, height=500, returned_objects=["last_object_clicked"])
 
-# map area only render once
-map_placeholder = st.empty()
-fmap = st.session_state["map_obj"]
-map_display = st_folium(fmap, width=550, height=325, returned_objects=["last_object_clicked"])
 
-# Facility selection logic
-if "selected_facility" not in st.session_state:
-    st.session_state["selected_facility"] = None
+    # click event
+    if "selected_facility" not in st.session_state:
+        st.session_state["selected_facility"] = None
 
-if map_display and map_display.get("last_object_clicked"):
-    lat_c, lon_c = map_display["last_object_clicked"]["lat"], map_display["last_object_clicked"]["lng"]
-    distances = (FACILITIES["latitude"] - lat_c).abs() + (FACILITIES["longitude"] - lon_c).abs()
-    if not distances.empty:
-        new_selection = FACILITIES.loc[distances.idxmin(), "Facility Name"]
-        st.session_state["selected_facility"] = new_selection
+    if map_display and map_display.get("last_object_clicked"):
+        lat_c, lon_c = map_display["last_object_clicked"]["lat"], map_display["last_object_clicked"]["lng"]
+        distances = (FACILITIES["latitude"] - lat_c).abs() + (FACILITIES["longitude"] - lon_c).abs()
+        if not distances.empty:
+            new_selection = FACILITIES.loc[distances.idxmin(), "Facility Name"]
+            st.session_state["selected_facility"] = new_selection
 
-selected_fac = st.session_state["selected_facility"]
+    selected_fac = st.session_state["selected_facility"]
 
-# Real-time metric display (update only numbers)
-st.markdown("### 🔄 Live Data Monitor")
+    # real time data
+    st.markdown("### Live Facility Data")
 
-if selected_fac:
-    st.write(f"**Facility:** {selected_fac}")
+    if selected_fac:
+        metric_placeholder = st.empty()
 
-    metric_placeholder = st.empty()
-
-    for _ in range(60):  # update each 3 secs for 3 minutes
         rec = next((v for k, v in st.session_state["fac_buffer"].items()
                     if k.strip().lower() == selected_fac.strip().lower()), None)
 
@@ -191,16 +197,92 @@ if selected_fac:
             emis = rec.get("Emissions(t)", "N/A")
             fuel = rec.get("Fuel Type", "Unknown")
 
+            if isinstance(power, (int, float)):
+                power = f"{float(power):,.2f}"
+            if isinstance(emis, (int, float)):
+                emis = f"{float(emis):,.3f}"
+
             with metric_placeholder.container():
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Timestamp", ts)
-                col2.metric("Power (MW)", power)
-                col3.metric("Emissions (tCO₂)", emis)
-                st.caption(f"Fuel Type: {fuel}")
+                st.markdown(f"""
+                <div style="padding:15px; border-radius:10px;
+                            border:1px solid #ddd; width:90%;">
+                    <h4 style="margin-bottom:0.3rem;">{selected_fac}</h4>
+                    <p style="color:#666; margin-top:0;">Fuel Type: <b>{fuel}</b></p>
+                    <hr style="margin:0.3rem 0;">
+                    <p style="margin:0.3rem 0;">⏱ <b>Timestamp:</b> {ts}</p>
+                    <p style="margin:0.3rem 0;"><b>Power:</b> {power} MW</p>
+                    <p style="margin:0.3rem 0;"><b>Emissions:</b> {emis} tCO₂</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
-            metric_placeholder.info("Waiting for live MQTT messages...")
+            st.info("Waiting for live MQTT messages...")
 
-        time.sleep(3)
+    else:
+        st.info("🕹️ Click a marker on the map to start live monitoring.")
 
-else:
-    st.info("🕹️ Click a marker to start live monitoring.")
+#  Market Data
+with right_col:
+    st.markdown("### Market Data (All Regions)")
+
+    # load market_data.csv
+    @st.cache_data
+    def load_market(path="market_data.csv"):
+        df = pd.read_csv(path)
+        df.columns = [c.strip() for c in df.columns]
+
+        time_cols = [c for c in df.columns if "time" in c.lower() or "date" in c.lower()]
+        if time_cols:
+            time_col = time_cols[0]
+            df.rename(columns={time_col: "timestamp"}, inplace=True)
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        else:
+            st.warning("⚠️ No timestamp-like column found in market_data.csv.")
+            df["timestamp"] = pd.NaT
+
+        return df
+
+    market_df = load_market("market_data.csv")
+
+    if selected_fac:
+        rec = next((v for k, v in st.session_state["fac_buffer"].items()
+                    if k.strip().lower() == selected_fac.strip().lower()), None)
+
+        if rec and rec.get("Timestamp"):
+            ts_str = rec.get("Timestamp")
+            try:
+                ts = pd.to_datetime(ts_str)
+            except Exception:
+                ts = pd.to_datetime(ts_str, errors="coerce")
+
+            subset = market_df[
+                market_df["timestamp"].between(ts - pd.Timedelta(minutes=5),
+                                               ts + pd.Timedelta(minutes=5))
+            ]
+            if subset.empty:
+                st.warning(f"No market data found near {ts_str}")
+            else:
+                closest_time = subset["timestamp"].iloc[(subset["timestamp"] - ts).abs().argsort()].iloc[0]
+                same_time_data = market_df[market_df["timestamp"] == closest_time]
+
+                st.markdown(f"**Timestamp:** {closest_time.strftime('%Y-%m-%d %H:%M')}")
+
+                # show all region
+                display_df = same_time_data[["region", "Price($/MWh)", "Demand(MW)"]].copy()
+                display_df.columns = ["Region", "Price ($/MWh)", "Demand (MW)"]
+                display_df = display_df.sort_values("Region")
+
+                st.dataframe(display_df.style.format({
+                    "Price ($/MWh)": "{:.2f}",
+                    "Demand (MW)": "{:,.0f}"
+                }), use_container_width=True)
+
+                avg_price = display_df["Price ($/MWh)"].mean()
+                total_demand = display_df["Demand (MW)"].sum()
+                st.markdown(f"""
+                **Average Price:** {avg_price:.2f} $/MWh  
+                **Total Demand:** {total_demand:,.0f} MW
+                """)
+        else:
+            st.info("Waiting for facility timestamp...")
+    else:
+        st.info("🕹️ Click a marker to start monitoring.")
