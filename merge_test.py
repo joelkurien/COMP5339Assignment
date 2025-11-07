@@ -1,7 +1,8 @@
 import os
-import threading
-os.environ["OPENELECTRICITY_API_KEY"] = "oe_3ZLTaoN86mVzNAEFwMjaxR8u"
+import threading # concurrent data publishing.
+os.environ["OPENELECTRICITY_API_KEY"] = "oe_3ZLTaoN86mVzNAEFwMjaxR8u" #API key for accessing the OpenElectricity data.
 
+#main libraries for performing Task 1 - 3
 from openelectricity import OEClient
 from openelectricity.types import DataMetric, NetworkCode, DataInterval, UnitStatusType, MarketMetric
 from datetime import datetime
@@ -18,7 +19,7 @@ from tqdm import tqdm
 from bs4 import BeautifulSoup
 from io import StringIO
 
-#region Database creation
+#region Database creation as part of Assignment 1
 class DatabaseGeneration():
     def __init__(self, google_api_key, db_path='assignment1.duckdb'):
         """Initialize the DatabaseGeneration class"""
@@ -277,13 +278,11 @@ db_gen = DatabaseGeneration(
     google_api_key="AIzaSyCXe4WX_VTezOiWHQYSxqXxp3tphr1nqpQ",
     db_path="assignment1.duckdb"
 )
-#endregion Database creation
+#endregion Database creation as part of Assignment 1
 
+nemClient = OEClient() #OpenElectricity Python Client 
 
-
-nemClient = OEClient()
-
-# OpenElectricity data extraction and cleaning
+# OpenElectricity facility Codes extraction for code cleanliness
 def get_facility_codes():
     facility_codes_file = 'facility_codes.json'
     if os.path.exists(facility_codes_file) and os.path.getsize(facility_codes_file) > 0:
@@ -300,7 +299,8 @@ def get_facility_codes():
         print("Facility Codes Cached")
     return facility_codes
 
-
+#Task 1: Extracting the power facilities power and emission data using the OpenElectricity API 
+# this is done with the help of OpenElectricty Python Library that implements API data extraction.
 def extract_power_and_emissions_data(facilities, f_codes, n, slice_size, obs_date):
     date_start, date_end = obs_date['start'], obs_date['end']
     data = []
@@ -332,7 +332,7 @@ def extract_power_and_emissions_data(facilities, f_codes, n, slice_size, obs_dat
                             })
     return data
 
-
+# Task 1 (Optional): Extracting market information for every network region in NEM (NSW, QLD, VIC, TAS, SA)
 def extract_market_data(obs_date):
     date_start, date_end = obs_date['start'], obs_date['end']
     response = nemClient.get_market(
@@ -341,7 +341,7 @@ def extract_market_data(obs_date):
         interval="5m",
         date_start=date_start,
         date_end=date_end,
-        primary_grouping="network_region"
+        primary_grouping="network"
     )
 
     records = []
@@ -358,7 +358,7 @@ def extract_market_data(obs_date):
                 })
     return pd.DataFrame(records)
 
-
+#Controller function to extract and save power facility data
 def get_facility_metrics(obs_date):
     """Get facility-level power/emission metrics and save to CSV."""
     facility_codes = get_facility_codes()
@@ -373,14 +373,15 @@ def get_facility_metrics(obs_date):
     df.to_csv("power_df.csv", index=False)
     print(f"Saved power_df.csv with {len(df)} rows.")
 
-
+#Controller function to extract and save market data
 def get_market_data(obs_date):
     """Get market metrics and save to CSV."""
     df = extract_market_data(obs_date)
     df.to_csv("market_data.csv", index=False)
     print(f"Saved market_data.csv with {len(df)} rows.")
 
-
+#Task 2: Caching the data retrieved from the API's into CSVs and cleaning the 
+#said CSV to avoid inconsistency and irregularly values being sent during publishing
 def csv_cleaning():
     """Clean and reformat extracted CSVs for downstream use."""
     power_df = pd.read_csv("power_df.csv")
@@ -406,7 +407,7 @@ def csv_cleaning():
     market_temp.to_csv('market_data.csv', index=False)
     print("CSV's have been cleaned and updated")
 
-# Fuzzy merge with DuckDB coordinates
+# Normalize the projectName from DuckDb and the Facility Name from the power_df.csv for joining the two files.
 def normalize_name(name: str) -> str:
     """Normalize facility/project names for better fuzzy matching."""
     if pd.isna(name):
@@ -419,7 +420,8 @@ def normalize_name(name: str) -> str:
         name = name.replace(term, "")
     return re.sub(r"\s+", " ", name).strip()
 
-
+#method to enrich the csv data with the database data that provides the longitude and latitude of each power facility
+#here we try to find a similarity feature between the two tables and join them based on it.
 def merge_with_duckdb_location_fuzzy(
     db_path="assignment1.duckdb",
     csv_path="power_df.csv",
@@ -510,16 +512,16 @@ def publish_data(df, mqtt_topic, broker, port, stop_event):
             print(f"Published to {mqtt_topic}: {json_payload}")
             print()
             
-            time.sleep(0.1)
-        time.sleep(60)   
+            time.sleep(0.1) # 0.1s delay after every publish call
+        time.sleep(60)   #60s delay before restart if the publisher is not interrupted
     
     if not stop_event.is_set():
-        time.sleep(60)
+        time.sleep(60) #if a stop event is called the publisher sleeps for 60s before closing for a graceful exit
 
 stop_event = threading.Event()
 
 def mqtt_publisher():
-    MQTT_BROKER = "test.mosquitto.org"  
+    MQTT_BROKER = "localhost"  
     MQTT_PORT = 1883
     POWER_MQTT_TOPIC = "facilities/metrics_info"
     MARKET_MQTT_TOPIC = "market/metrics_info"
