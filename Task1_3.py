@@ -393,6 +393,7 @@ def csv_cleaning():
     power_temp = power_temp.copy()  
     power_temp.loc[:, 'Power(MW)'] = power_df.query("Metric == 'power'")['Value'].values
     power_temp.loc[:, 'Emissions(t)'] = power_df.query("Metric == 'emissions'")['Value'].values
+    power_temp = power_temp.dropna()
     power_temp = power_temp[~((power_temp['Power(MW)'] == 0) & (power_temp['Emissions(t)'] == 0))]
     power_temp = power_temp.drop(columns=['Value', 'Metric', 'Measure Unit'])
     
